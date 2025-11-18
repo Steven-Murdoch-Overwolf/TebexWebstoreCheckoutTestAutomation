@@ -1,37 +1,23 @@
-import { Given, When, Then, Before, After } from '@cucumber/cucumber';
-import { chromium } from '@playwright/test';
+// steps/login.steps.js
+import { Given, When, Then } from '@cucumber/cucumber';
 import { LoginPage } from '../pages/LoginPage.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-let browser, context, page, loginPage;
-
-Before(async () => {
-  browser = await chromium.launch({ headless: false });
-  context = await browser.newContext({
-    ignoreHTTPSErrors: true,
-  });
-  page = await context.newPage();
-  loginPage = new LoginPage(page);
+Given('I am on the login page', async function () {
+  this.loginPage = new LoginPage(this.page);     // 👈 use page from hooks
+  await this.loginPage.goto();
 });
 
-After(async () => {
-  await browser.close();
+When('I login with valid credentials', async function () {
+  await this.loginPage.login(process.env.USERNAME, process.env.PASSWORD);
 });
 
-Given('I am on the login page', async () => {
-  await loginPage.goto();
-});
+Then('I am able to navigate to the creator panel dashboard', async function () {
+  await this.loginPage.navigateToCreatorPanel();
 
-When('I login with valid credentials', async () => {
-  await loginPage.login(process.env.USERNAME, process.env.PASSWORD);
-});
-
-Then('I am able to navigate to the creator panel dashboard', async () => {
-  await loginPage.navigateToCreatorPanel();
-
-  const visible = await loginPage.isRevenueReportVisible();
+  const visible = await this.loginPage.isRevenueReportVisible();
   if (!visible) {
     throw new Error('Navigation failed — "Revenue Report" not visible on page');
   }
