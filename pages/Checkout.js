@@ -395,7 +395,7 @@ class Checkout {
     console.log('⏳ Waiting for Tebex checkout iframe...');
     await this.page.waitForSelector(
       'iframe[name^="__zoid__tebex_js_checkout_component__"]',
-      { timeout: 20000 }
+      { timeout: 5000 }
     );
 
     // Outer Tebex iframe
