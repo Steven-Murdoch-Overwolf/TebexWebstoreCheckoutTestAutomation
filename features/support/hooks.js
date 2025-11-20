@@ -32,15 +32,6 @@ Before(async function () {
 After(async function (scenario) {
   console.log(`🔴 After: Closing context (scenario status: ${scenario.result?.status})`);
 
-  // screenshot on failure
-  if (scenario.result?.status === 'FAILED' && this.page) {
-    await this.page.screenshot({
-      path: `./screenshots/FAILED-${Date.now()}.png`,
-      fullPage: true,
-    });
-    console.log('📸 Saved failure screenshot');
-  }
-
   if (this.context) {
     await this.context.close();
   }

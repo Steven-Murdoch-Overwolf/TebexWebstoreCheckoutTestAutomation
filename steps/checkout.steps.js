@@ -4,17 +4,10 @@ import Checkout from '../pages/Checkout.js';
 
 let checkoutPage;
 
-Then('I complete the payment details for a Visa Card and click Pay', async function () {
+Then('I complete the package payment details and click Pay', async function () {
   checkoutPage = new Checkout(this.page);
   console.log('🧾 Starting to fill payment details...');
-  await checkoutPage.fillPaymentDetails();
-  console.log('✅ Payment step completed.');
-});
-
-Then('I complete the full priced package payment details and click Pay', async function () {
-  checkoutPage = new Checkout(this.page);
-  console.log('🧾 Starting to fill payment details...');
-  await checkoutPage.fillPaymentDetailsForFullPricedPackage();
+  await checkoutPage.fillPaymentDetailsForPackage();
   console.log('✅ Payment step completed.');
 });
 
@@ -34,3 +27,21 @@ When(/^I enter a valid creator code$/, async function () {
   checkoutPage = new Checkout(this.page);
   await checkoutPage.enterCreatorCode();
 });
+
+When(/^I enter a valid coupon$/, async function () {
+  console.log('🧾 Entering coupon...');
+  checkoutPage = new Checkout(this.page);
+  await checkoutPage.enterCoupon();
+});
+
+  When(/^I complete the Google Pay package payment details and click Pay$/, async function () {
+    console.log('🧾 Entering coupon...');
+    checkoutPage = new Checkout(this.page);
+    await checkoutPage.fillPaymentDetailsForGooglePay();
+});
+
+  When(/^confirm Google Pay is selected$/, async function () {
+    console.log('🧾 Entering coupon...');
+    checkoutPage = new Checkout(this.page);
+    await checkoutPage.confirmGooglePaySelected();
+  });

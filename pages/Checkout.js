@@ -218,64 +218,6 @@ class Checkout {
     throw new Error('❌ Could not detect confirmation (checked main page + all iframes + innerText).');
   }
 
-
-
-
-  async fillSubscriptionPaymentDetails() {
-    const { email, fullName, zipCode } = this.data;
-    console.log('🧾 Starting to fill payment details...');
-
-    // --- Wait for the Tebex iframe to appear ---
-    console.log('⏳ Waiting for Tebex checkout iframe...');
-    await this.page.waitForSelector('iframe[name^="__zoid__tebex_js_checkout_component__"]', { timeout: 20000 });
-
-    const frameLocator = this.page.frameLocator('iframe[name^="__zoid__tebex_js_checkout_component__"]');
-    console.log('✅ Found Tebex iframe — filling fields...');
-
-    // --- Fill form fields inside iframe ---
-    await frameLocator.locator('#email').fill(email);
-    await frameLocator.locator('input[name*="name" i]').fill(fullName);
-    await frameLocator.locator('input[name*="zip" i], input[name*="postal" i]').fill(zipCode);
-    console.log('✅ Payment details filled');
-
-    // --- Tick Terms and Conditions checkbox ---
-
-    const termsCheckbox = frameLocator.locator('#checkbox-15');
-    if (await termsCheckbox.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const isChecked = await termsCheckbox.isChecked();
-      if (!isChecked) {
-        await termsCheckbox.check();
-        console.log('☑️ Checked Terms and Conditions box');
-      } else {
-        console.log('🔘 Terms box already checked');
-      }
-    } else {
-      console.log('⚠️ Terms checkbox not visible, skipping...');
-    }
-
-
-    // --- Click the Pay button ---
-    const payButton = frameLocator.getByRole('button', { name: /pay/i });
-    if (await payButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await payButton.click();
-      console.log('💳 Clicked Pay button');
-    } else {
-      console.log('⚠️ Pay button not visible');
-    }
-
-    // --- Wait for either next step or navigation ---
-    console.log('⏳ Waiting for next payment step or navigation...');
-    try {
-      await Promise.race([
-        this.page.waitForSelector('button.btn.btn-success[name="action"][value="complete"]', { timeout: 15000 }),
-        this.page.waitForURL(/confirmation|success|thankyou/i, { timeout: 15000 }),
-      ]);
-      console.log('✅ Checkout flow advanced — continuing...');
-    } catch {
-      console.log('⚠️ No next page or button detected after Pay (likely still loading). Proceeding anyway...');
-    }
-  }
-
   async enterCreatorCode() {
     console.log('🎟️ Starting to enter Creator Code...');
 
@@ -376,8 +318,76 @@ class Checkout {
     }
   }
 
+  async enterCoupon() {
+    console.log('🎟️ Starting to enter Coupon...');
 
-  async fillPaymentDetailsForFullPricedPackage() {
+    // 1️⃣ Load coupon code from JSON
+    let couponCode = 'DEFAULTCODE';
+    try {
+      const codeData = JSON.parse(
+        fs.readFileSync('./data/couponCode.json', 'utf-8'),
+      );
+      couponCode = codeData.couponCode?.trim() || couponCode;
+      console.log(`🔑 Loaded coupon from data file: ${couponCode}`);
+    } catch (err) {
+      console.warn(
+        '⚠️ Could not read couponCode.json — using fallback code',
+        err,
+      );
+    }
+
+    // 🔍 Optional debugging pause here
+    // await this.page.pause();   // <-- remember the ()
+
+    // 2️⃣ Get the checkout iframe and coupon textbox **inside** it
+    const iframeLocator = this.page.locator(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]',
+    );
+
+    console.log('⏳ Waiting for checkout iframe...');
+    await iframeLocator.waitFor({ state: 'visible', timeout: 15000 });
+
+    const frame = await iframeLocator.contentFrame();
+    if (!frame) {
+      throw new Error('❌ Could not get contentFrame() for checkout iframe');
+    }
+
+    const couponInput = frame.getByRole('textbox', {
+      name: 'Coupon/Gift Card',
+    });
+
+    console.log('⏳ Waiting for Coupon/Gift Card textbox...');
+    await couponInput.waitFor({ state: 'visible', timeout: 15000 });
+
+    // 3️⃣ Fill in the coupon
+    await couponInput.fill('');
+    await couponInput.fill(couponCode);
+    console.log(`✅ Entered coupon: ${couponCode}`);
+
+    // 4️⃣ Click the Confirm/Apply button that appears
+    const confirmButton = frame.getByRole('button', { name: /confirm|apply/i });
+
+    console.log('⏳ Waiting for Confirm/Apply button...');
+    await confirmButton.waitFor({ state: 'visible', timeout: 15000 });
+
+    try {
+      await confirmButton.click({ timeout: 5000 });
+      console.log('🚀 Clicked Confirm/Apply button');
+    } catch (err) {
+      console.warn('⚠️ Normal click failed, retrying with force...', err);
+      await confirmButton.click({ force: true });
+      console.log('✅ Clicked Confirm/Apply button (force)');
+    }
+
+    // 5️⃣ Wait for "Discounts:" label to appear before ending this step
+    const discountsLabel = frame.getByText('Discounts:', { exact: false });
+
+    console.log('⏳ Waiting for Discounts label...');
+    await discountsLabel.waitFor({ state: 'visible', timeout: 10000 });
+    console.log('✅ Discounts label visible — coupon step complete');
+  }
+
+  async fillPaymentDetailsForPackage() {
     const { email, fullName, zipCode, cardNumber, expiryDate, cvc } = this.data;
     console.log('🧾 Starting to fill payment details...');
 
@@ -455,6 +465,106 @@ class Checkout {
     }
 
     // --- Wait for either next step or navigation ---
+    console.log('⏳ Waiting for next payment step or navigation...');
+    try {
+      await Promise.race([
+        this.page.waitForSelector(
+          'button.btn.btn-success[name="action"][value="complete"]',
+          { timeout: 15000 }
+        ),
+        this.page.waitForURL(/confirmation|success|thankyou/i, {
+          timeout: 15000,
+        }),
+      ]);
+      console.log('✅ Checkout flow advanced — continuing...');
+    } catch {
+      console.log(
+        '⚠️ No next page or button detected after Pay (likely still loading). Proceeding anyway...'
+      );
+    }
+  }
+
+  async fillPaymentDetailsForGooglePay() {
+    const { email, fullName, zipCode } = this.data;
+    console.log('🧾 Starting to fill Google Pay payment details...');
+
+    // --- 1) Wait for the Tebex iframe to appear ---
+    console.log('⏳ Waiting for Tebex checkout iframe...');
+    await this.page.waitForSelector(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]',
+      { timeout: 20000 }
+    );
+
+    // Use FrameLocator, just like in fillPaymentDetailsForPackage
+    const outerFrame = this.page.frameLocator(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]'
+    );
+    console.log('✅ Found Tebex iframe — starting Google Pay flow...');
+
+    // --- 2) Click "More Payment Methods" ---
+    console.log('🧾 Clicking "More Payment Methods"...');
+    const moreMethodsButton = outerFrame.getByText('More Payment Methods', {
+      exact: true,
+    });
+    await moreMethodsButton.waitFor({ state: 'visible', timeout: 10000 });
+    await moreMethodsButton.click();
+
+    // --- 3) Select the Google Pay method ---
+    console.log('🧾 Selecting Google Pay method...');
+    const googlePayCard = outerFrame.locator(
+      'div.payment-methods .v-card:has(img[src*="gpay"])'
+    );
+    await googlePayCard.waitFor({ state: 'visible', timeout: 10000 });
+    await googlePayCard.click();
+
+    // ❌ DO NOT click Back – the view likely closes/changes automatically
+    // (this is what caused the "element was detached" timeout)
+
+    // Optional: wait for the payment-methods list to disappear
+    await outerFrame
+      .locator('div.payment-methods')
+      .waitFor({ state: 'hidden', timeout: 10000 })
+      .catch(() => {
+        console.log('ℹ️ payment-methods container did not hide explicitly (may already be gone).');
+      });
+
+    // --- 4) Fill basic customer details ---
+    console.log('🧾 Filling basic customer details for Google Pay...');
+    await outerFrame.locator('#email').fill(email);
+    await outerFrame.locator('input[name*="name" i]').fill(fullName);
+    await outerFrame
+      .locator('input[name*="zip" i], input[name*="postal" i]')
+      .fill(zipCode);
+    console.log('✅ Basic customer details filled');
+
+    // --- 5) Tick Terms & Conditions (same idea as your card flow) ---
+    const termsCheckbox = outerFrame.getByRole('checkbox', {
+      name: /I agree to Tebex's Terms/i,
+    });
+
+    if (await termsCheckbox.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const checked = await termsCheckbox.isChecked().catch(() => false);
+      if (!checked) {
+        await termsCheckbox.check();
+        console.log('☑️ Checked Terms and Conditions checkbox');
+      } else {
+        console.log('🔘 Terms checkbox already checked');
+      }
+    } else {
+      console.log("⚠️ Terms checkbox not visible, couldn't click it");
+    }
+
+    // --- 6) Click Pay ---
+    console.log('💳 Clicking Pay button...');
+    const payButton = outerFrame.getByRole('button', { name: /pay/i });
+    if (await payButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await payButton.click();
+      console.log('💳 Clicked Pay button');
+    } else {
+      console.log('⚠️ Pay button not visible');
+    }
+
+    // --- 7) Wait for next step or navigation (same pattern as your other method) ---
     console.log('⏳ Waiting for next payment step or navigation...');
     try {
       await Promise.race([
