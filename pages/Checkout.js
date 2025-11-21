@@ -741,6 +741,82 @@ class Checkout {
   }
 
 
+  async fillPaymentDetailsForNaverPay() {
+    const { email, fullName, zipCode } = this.data;
+    console.log('🧾 Starting to fill Naver Pay payment details...');
+
+    // --- 1. Standard Setup & Iframe ---
+    console.log('⏳ Waiting for Tebex checkout iframe...');
+    await this.page.waitForSelector(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]',
+      { timeout: 20000 }
+    );
+    const outerFrame = this.page.frameLocator(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]'
+    );
+
+    // --- 2. Select Naver Pay ---
+    await outerFrame.getByText('More Payment Methods', { exact: true }).click();
+    await outerFrame.locator('div.payment-methods .v-card:has(img[src*="naverpay"])').click();
+
+    // --- 3. Fill Customer Details ---
+    await outerFrame.locator('#email').fill(email);
+    await outerFrame.locator('input[name*="name" i]').fill(fullName);
+    await outerFrame.locator('input[name*="zip" i], input[name*="postal" i]').fill(zipCode);
+
+    // --- 4. Handle Terms Checkbox ---
+    const termsCheckbox = outerFrame.getByRole('checkbox', { name: /I agree to Tebex's Terms/i });
+    if (await termsCheckbox.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (!(await termsCheckbox.isChecked())) await termsCheckbox.check();
+    }
+
+    // --- 5. Trigger Popup ---
+    console.log('⏳ Clicking continue and waiting for Naver Pay popup...');
+
+    // Locate the pay button inside the iframe
+    const continueButton = outerFrame.getByRole('button', { name: /continue|pay/i });
+    await continueButton.scrollIntoViewIfNeeded();
+
+    // Trigger the popup and capture the reference
+    const [naverPopup] = await Promise.all([
+      this.page.waitForEvent('popup'),
+      continueButton.click(),
+    ]);
+
+    // --- 6. Handle New Window (The Fix) ---
+    console.log('✅ Naver Pay Popup captured. Waiting for redirects to finish...');
+
+    // CRITICAL FIX: Wait for 'networkidle' instead of 'domcontentloaded'.
+    // Your logs showed 3+ redirects (psp.ac.alipay -> ac.alipay).
+    // 'networkidle' ensures the final page is actually ready.
+    await naverPopup.waitForLoadState('networkidle');
+
+    // Use a "Fuzzy" locator that finds ANY button containing "Confirm" and "Pay"
+    // This handles "Confirm & Pay", "Confirm and Pay", or case differences.
+    const confirmButton = naverPopup.locator('button, [role="button"]')
+      .filter({ hasText: /confirm.*pay/i })
+      .first();
+
+    console.log('⏳ Looking for "Confirm & Pay" button...');
+
+    try {
+      await confirmButton.waitFor({ state: 'visible', timeout: 20000 });
+      await confirmButton.click();
+      console.log('✅ Clicked "Confirm & Pay"');
+    } catch (e) {
+      console.log('❌ "Confirm & Pay" button NOT found. Dumping page text for debugging:');
+      console.log(await naverPopup.innerText('body')); // This will show up in your console if it fails again
+      throw e;
+    }
+
+    // --- 7. Cleanup ---
+    // Wait for the window to close itself, signaling success
+    await naverPopup.waitForEvent('close', { timeout: 30000 });
+    console.log('🎉 Naver Pay popup closed. Payment complete.');
+  }
+
+
+
 
 
 
@@ -895,63 +971,6 @@ class Checkout {
     throw new Error('❌ Could not detect confirmation (checked main page + all iframes + innerText).');
   }
 
-
-
-
-  async fillPaymentDetailsForGiftCardPackage() {
-    const { email, fullName, zipCode } = this.data;
-    console.log('🧾 Starting to fill payment details...');
-
-    // --- Wait for the Tebex iframe to appear ---
-    console.log('⏳ Waiting for Tebex checkout iframe...');
-    await this.page.waitForSelector('iframe[name^="__zoid__tebex_js_checkout_component__"]', { timeout: 20000 });
-
-    const frameLocator = this.page.frameLocator('iframe[name^="__zoid__tebex_js_checkout_component__"]');
-    console.log('✅ Found Tebex iframe — filling fields...');
-
-    // --- Fill form fields inside iframe ---
-    await frameLocator.locator('#email').fill(email);
-    await frameLocator.locator('input[name*="name" i]').fill(fullName);
-    await frameLocator.locator('input[name*="zip" i], input[name*="postal" i]').fill(zipCode);
-    console.log('✅ Payment details filled');
-
-    // --- Tick Terms and Conditions checkbox ---
-
-    const termsCheckbox = frameLocator.locator('#checkbox-14');
-    if (await termsCheckbox.isVisible({ timeout: 3000 }).catch(() => false)) {
-      const isChecked = await termsCheckbox.isChecked();
-      if (!isChecked) {
-        await termsCheckbox.check();
-        console.log('☑️ Checked Terms and Conditions box');
-      } else {
-        console.log('🔘 Terms box already checked');
-      }
-    } else {
-      console.log('⚠️ Terms checkbox not visible, skipping...');
-    }
-
-
-    // --- Click the Pay button ---
-    const payButton = frameLocator.getByRole('button', { name: /pay/i });
-    if (await payButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await payButton.click();
-      console.log('💳 Clicked Pay button');
-    } else {
-      console.log('⚠️ Pay button not visible');
-    }
-
-    // --- Wait for either next step or navigation ---
-    console.log('⏳ Waiting for next payment step or navigation...');
-    try {
-      await Promise.race([
-        this.page.waitForSelector('button.btn.btn-success[name="action"][value="complete"]', { timeout: 15000 }),
-        this.page.waitForURL(/confirmation|success|thankyou/i, { timeout: 15000 }),
-      ]);
-      console.log('✅ Checkout flow advanced — continuing...');
-    } catch {
-      console.log('⚠️ No next page or button detected after Pay (likely still loading). Proceeding anyway...');
-    }
-  }
   async confirmTestPayment() {
     console.log('💰 Confirming test payment...');
     console.log('⏳ Looking for already open test payment tab...');
@@ -993,6 +1012,10 @@ class Checkout {
       console.log('⚠️ Payment confirmation not detected — may remain on sandbox page.');
     }
   }
+
+
+
+
 
   // ============================================================
   // Step 3: Confirm order complete message on main tab

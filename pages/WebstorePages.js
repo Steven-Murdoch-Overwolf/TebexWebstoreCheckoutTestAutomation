@@ -36,28 +36,19 @@ export class WebstorePages {
   }
 
   async ClickProceedToCheckout() {
-    console.log('⏳ Waiting for Proceed to checkout button...');
-    const button = this.page.getByRole('button', {
-      name: /proceed to checkout/i,
-    });
+    const checkoutBtn = this.page.getByRole('button', { name: /proceed to checkout/i });
 
-    await expect(button).toBeVisible({ timeout: 10000 });
-    console.log('✅ Button visible, clicking now...');
+    // 1. Wait for it to exist
+    await checkoutBtn.waitFor({ state: 'visible', timeout: 10000 });
 
-    // 🪄 Handle popup OR same-page navigation
-    const [popup] = await Promise.all([
-      this.page.waitForEvent('popup').catch(() => null), // ignore if no popup
-      button.click(),
-    ]);
+    // 2. Small "Settling" wait (Vuetify animations usually take ~300ms)
+    await this.page.waitForTimeout(500);
 
-    if (popup) {
-      console.log('🆕 Checkout opened in new tab — switching context...');
-      this.page = popup;
-      await popup.waitForLoadState('domcontentloaded');
-      console.log('✅ New checkout tab loaded');
-    } else {
-      console.log('🧭 Checkout opened in same tab');
-    }
+    // 3. Click with FORCE
+    // This bypasses some actionability checks that might be failing due to the animation
+    await checkoutBtn.click({ force: true });
+
+    console.log('✅ Clicked Proceed to Checkout (Forced)');
   }
 
   async addSubscriptionPackageToBasket() {

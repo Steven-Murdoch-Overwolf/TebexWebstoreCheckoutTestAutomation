@@ -61,3 +61,11 @@ When(/^I enter a valid coupon$/, async function () {
     checkoutPage = new Checkout(this.page);
     await checkoutPage.fillPaymentDetailsForPayPalSubscriptions();
   });
+
+
+
+  When(/^I complete the Naver Pay package payment details and click Pay$/, async function () {
+    console.log('🧾 Completing PayPal payment details...');
+    checkoutPage = new Checkout(this.page);
+    await checkoutPage.fillPaymentDetailsForNaverPay();
+});

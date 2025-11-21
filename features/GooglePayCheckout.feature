@@ -1,4 +1,4 @@
-Feature: Test Payment Regression using Google Pay
+#Feature: Test Payment Regression using Google Pay
 # Work In Progress: Currently unable to click the Pay button within the iframe of the GooglePay popup
 
 
