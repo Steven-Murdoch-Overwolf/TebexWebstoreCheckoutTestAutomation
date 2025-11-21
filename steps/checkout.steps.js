@@ -35,13 +35,29 @@ When(/^I enter a valid coupon$/, async function () {
 });
 
   When(/^I complete the Google Pay package payment details and click Pay$/, async function () {
-    console.log('🧾 Entering coupon...');
+    console.log('🧾 Completing Google Pay payment details...');
     checkoutPage = new Checkout(this.page);
     await checkoutPage.fillPaymentDetailsForGooglePay();
 });
 
   When(/^confirm Google Pay is selected$/, async function () {
-    console.log('🧾 Entering coupon...');
+    console.log('🧾 Selecting Google Pay...');
     checkoutPage = new Checkout(this.page);
     await checkoutPage.confirmGooglePaySelected();
+  });
+
+
+
+
+  When(/^I complete the PayPal package payment details and click Pay$/, async function () {
+    console.log('🧾 Completing PayPal payment details...');
+    checkoutPage = new Checkout(this.page);
+    await checkoutPage.fillPaymentDetailsForPayPal();
+});
+
+
+  When(/^I complete the PayPal subscription package payment details and click Pay$/, async function () {
+    console.log('🧾 Completing PayPal Subscription Details...');
+    checkoutPage = new Checkout(this.page);
+    await checkoutPage.fillPaymentDetailsForPayPalSubscriptions();
   });

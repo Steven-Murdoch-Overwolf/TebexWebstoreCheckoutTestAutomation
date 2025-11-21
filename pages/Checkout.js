@@ -114,109 +114,44 @@ class Checkout {
   // Step 3: Confirm order complete message on main tab
   // ============================================================
   async verifyOrderConfirmation() {
-    console.log('🔍 Checking for purchase confirmation message...');
+    console.log("🔍 Checking for order confirmation...");
 
-    const context = this.page.context();
-    await this.page.waitForTimeout(1500);
+    // ---- Candidate selectors & text ----
+    const confirmationChecks = [
+      { selector: 'text="Order Complete"', where: "text match: Order Complete" },
+      { selector: 'text="Thank you for your purchase"', where: "Thank you message" },
+      { selector: '[data-testid="order-complete"]', where: "data-testid=order-complete" },
+      { selector: '.order-complete-title', where: "CSS: .order-complete-title" },
+    ];
 
-    // 🪄 Ensure we’re on the main checkout tab
-    const mainPage = context.pages().find(p =>
-      p.url().includes('universal-automation-project.tbxstage.net/checkout/basket')
-    );
-    if (mainPage) {
-      console.log('🔁 Switched back to main checkout tab');
-      this.page = mainPage;
-    } else {
-      console.log('⚠️ Could not find main tab — staying on current page.');
-    }
-
-    // Small delay for modal animations
-    await this.page.waitForTimeout(2000);
-
-    // ---- Helper: detect confirmation in a given page or frame ----
-    const tryDetectInScope = async (scope, label) => {
-      // 1️⃣ Role-based heading detection (most robust)
-      const h1Role = scope.getByRole('heading', { name: /order complete/i });
-      if (await h1Role.isVisible({ timeout: 1500 }).catch(() => false)) {
-        console.log(`🎉 Found "Order Complete" via ARIA role in ${label}`);
-        // Try to extract order number (usually visible near confirmation text)
-        try {
-          const text = await scope.evaluate(() => document.body.innerText);
-          const match = text.match(/tbx-[a-z0-9-]+/i);
-          if (match) console.log(`🧾 Detected Order Number: ${match[0]}`);
-        } catch (e) {
-          console.log('⚠️ Could not extract order number:', e.message);
-        }
-        return { ok: true, where: label };
-      }
-
-      // 2️⃣ Check for Continue button (also a strong indicator)
-      const continueBtn = scope.locator('button:has-text("Continue")');
-      if (await continueBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
-        console.log(`🎉 Found "Continue" button in ${label} — confirmation modal present`);
-        return { ok: true, where: label };
-      }
-
-      // 3️⃣ Plain text-based locators
-      const textLoc = scope.locator('text=Order Complete');
-      if (await textLoc.isVisible({ timeout: 1500 }).catch(() => false)) {
-        console.log(`🎉 Found "Order Complete" text in ${label}`);
-        return { ok: true, where: label };
-      }
-
-      // 4️⃣ Fallback: scan innerText for the phrase
+    for (const check of confirmationChecks) {
       try {
-        const inner = await scope.evaluate(() => document.body?.innerText || '');
-        if (inner && /order complete/i.test(inner)) {
-          console.log(`🎉 Found "Order Complete" via innerText in ${label}`);
-          return { ok: true, where: label };
+        const element = await this.page.locator(check.selector).first();
+        if (await element.isVisible()) {
+          console.log(`✅ Order confirmation verified successfully (${check.where})`);
+
+          // ---- 📸 SUCCESS SCREENSHOT ----
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const screenshotPath = `./screenshots/order-complete-${timestamp}.png`;
+          await this.page.screenshot({ path: screenshotPath, fullPage: true });
+          console.log(`📸 Saved confirmation screenshot: ${screenshotPath}`);
+
+          return; // important: confirmation found, stop here
         }
-      } catch {
-        // ignore cross-origin errors
-      }
-
-      return { ok: false };
-    };
-
-    // ---- Check main page first ----
-    let result = await tryDetectInScope(this.page, 'main page');
-    if (result.ok) {
-      console.log(`✅ Order confirmation verified successfully (${result.where})`);
-      return;
-    }
-
-    // ---- Search across all frames ----
-    const frames = this.page.frames();
-    console.log(`🔎 Searching ${frames.length} frame(s) for confirmation…`);
-    for (const frame of frames) {
-      console.log('   • frame:', frame.url() || '(about:blank)');
-      try {
-        result = await tryDetectInScope(frame, `frame ${frame.url() || '(blank)'}`);
-        if (result.ok) {
-          console.log(`✅ Order confirmation verified successfully (${result.where})`);
-          return;
-        }
-      } catch {
-        // skip inaccessible frames
+      } catch (err) {
+        // Ignore individual selector errors and continue searching
       }
     }
 
-    // ---- Final retry after short wait ----
-    await this.page.waitForTimeout(2000);
-    result = await tryDetectInScope(this.page, 'main page (final retry)');
-    if (result.ok) {
-      console.log(`✅ Order confirmation verified successfully (${result.where})`);
-      return;
-    }
-
-    // ---- If all failed, capture a screenshot ----
+    // ---- If all failed, capture a failure screenshot ----
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const screenshotPath = `./screenshots/order-complete-missing-${timestamp}.png`;
+    const screenshotPath = `./screenshots/order-complete-MISSING-${timestamp}.png`;
     await this.page.screenshot({ path: screenshotPath, fullPage: true });
-    console.log(`📸 Saved screenshot for debugging: ${screenshotPath}`);
+    console.log(`❌ No confirmation message found. Screenshot saved: ${screenshotPath}`);
 
-    throw new Error('❌ Could not detect confirmation (checked main page + all iframes + innerText).');
+    throw new Error("Order confirmation message NOT found on page.");
   }
+
 
   async enterCreatorCode() {
     console.log('🎟️ Starting to enter Creator Code...');
@@ -484,105 +419,330 @@ class Checkout {
     }
   }
 
+
+
+
+
+
   async fillPaymentDetailsForGooglePay() {
     const { email, fullName, zipCode } = this.data;
     console.log('🧾 Starting to fill Google Pay payment details...');
 
-    // --- 1) Wait for the Tebex iframe to appear ---
+    // --- Standard Setup ---
+    console.log('⏳ Waiting for Tebex checkout iframe...');
+    await this.page.waitForSelector('iframe[name^="__zoid__tebex_js_checkout_component__"]', { timeout: 20000 });
+    const outerFrame = this.page.frameLocator('iframe[name^="__zoid__tebex_js_checkout_component__"]');
+
+    await outerFrame.getByText('More Payment Methods', { exact: true }).click();
+    await outerFrame.locator('div.payment-methods .v-card:has(img[src*="gpay"])').click();
+
+    await outerFrame.locator('#email').fill(email);
+    await outerFrame.locator('input[name*="name" i]').fill(fullName);
+    await outerFrame.locator('input[name*="zip" i], input[name*="postal" i]').fill(zipCode);
+
+    const termsCheckbox = outerFrame.getByRole('checkbox', { name: /I agree to Tebex's Terms/i });
+    if (await termsCheckbox.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (!(await termsCheckbox.isChecked())) await termsCheckbox.check();
+    }
+
+    // --- Open Popup ---
+    console.log('⏳ Preparing to handle Google Pay Popup...');
+    const continueButton = outerFrame.getByRole('button', { name: /continue|pay/i });
+    await continueButton.scrollIntoViewIfNeeded();
+
+    const [gpayPopup] = await Promise.all([
+      this.page.waitForEvent('popup'),
+      continueButton.click(),
+    ]);
+
+    console.log('🚀 Google Pay Popup opened!');
+    await gpayPopup.waitForLoadState('load');
+
+    // --- 7) Click "Buy with GPay" ---
+    console.log('⏳ Waiting for "Buy with GPay" button...');
+    try {
+      const intermediateBtn = gpayPopup.getByRole('button', { name: /buy with/i });
+      await intermediateBtn.waitFor({ state: 'visible', timeout: 15000 });
+      await intermediateBtn.click({ force: true });
+      console.log('💳 Clicked "Buy with GPay" button');
+    } catch (err) {
+      console.log('⚠️ "Buy with GPay" button not found or timed out. Checking next screen...');
+    }
+
+    // ⏳ Wait for the Google UI to fully render
+    console.log('⏳ Waiting 5s for Google Pay Interface...');
+    await this.page.waitForTimeout(5000);
+
+    // --- 8) DIRECT JS INJECTION (Targeting Screenshot Class) ---
+    console.log('⚡️ Attempting Direct JavaScript Click...');
+
+    let payClicked = false;
+    const maxRetries = 10;
+
+    for (let i = 0; i < maxRetries; i++) {
+      const frames = gpayPopup.frames();
+      // Filter for the Pay Frame
+      const googleFrame = frames.find(f => f.url().includes('pay.google.com'));
+
+      if (googleFrame) {
+        // Run JS inside the frame to find and click
+        const result = await googleFrame.evaluate(() => {
+          // Helper to check visibility
+          const isVisible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+
+          // 1. Try the EXACT class from your screenshot (.VfPpkd-RLmnJb)
+          const screenshotClass = document.querySelector('.VfPpkd-RLmnJb');
+          if (screenshotClass && isVisible(screenshotClass)) {
+            screenshotClass.click();
+            return 'SUCCESS: Clicked .VfPpkd-RLmnJb (Screenshot Class)';
+          }
+
+          // 2. Try any div with role="button" (Google often uses this instead of <button>)
+          const roleButtons = Array.from(document.querySelectorAll('div[role="button"]'));
+          const targetRole = roleButtons.find(b => {
+            const t = b.innerText || '';
+            return isVisible(b) && (t.includes('Pay') || t.includes('Subscribe')) && !t.includes('Buy with');
+          });
+          if (targetRole) {
+            targetRole.click();
+            return 'SUCCESS: Clicked div[role="button"] with text: ' + targetRole.innerText;
+          }
+
+          // 3. Fallback to standard buttons
+          const stdButtons = Array.from(document.querySelectorAll('button'));
+          const targetStd = stdButtons.find(b => {
+            const t = b.innerText || '';
+            return isVisible(b) && (t.includes('Pay') || t.includes('Subscribe')) && !t.includes('Buy with');
+          });
+          if (targetStd) {
+            targetStd.click();
+            return 'SUCCESS: Clicked <button> with text: ' + targetStd.innerText;
+          }
+
+          // Diagnostic: Return what we DO see to help debug
+          return 'FAIL: Found ' + roleButtons.length + ' role=buttons, ' + stdButtons.length + ' std buttons.';
+        });
+
+        if (result.startsWith('SUCCESS')) {
+          console.log(`✅ ${result}`);
+          payClicked = true;
+          break;
+        } else {
+          console.log(`   ⚠️ JS Search: ${result}`);
+        }
+      } else {
+        console.log('   ⚠️ Google Pay frame not found yet...');
+      }
+
+      if (payClicked) break;
+      await this.page.waitForTimeout(2000);
+    }
+
+    if (!payClicked) {
+      console.log("❌ Failed to click 'Pay' via JS.");
+      await gpayPopup.screenshot({ path: './screenshots/gpay_js_fail.png' });
+      throw new Error("Could not find final Google Pay button via JS.");
+    }
+
+    // --- 9) Wait for the popup to close ---
+    try {
+      await gpayPopup.waitForEvent('close', { timeout: 30000 });
+      console.log('✅ Google Pay popup closed automatically.');
+    } catch (e) {
+      console.log('ℹ️ Popup did not close within timeout.');
+    }
+  }
+
+
+  async fillPaymentDetailsForPayPal() {
+    // Destructure your existing data
+    const { email, fullName, zipCode } = this.data;
+
+    // ⚠️ TODO: Move these to environment variables or your data object for security
+    const PAYPAL_LOGIN = 'ollie+personal@tebex.co.uk';
+    const PAYPAL_PASS = 'b/N5T7{x';
+
+    console.log('🧾 Starting to fill PayPal payment details...');
+
+    // --- Standard Setup ---
     console.log('⏳ Waiting for Tebex checkout iframe...');
     await this.page.waitForSelector(
       'iframe[name^="__zoid__tebex_js_checkout_component__"]',
-      { timeout: 20000 }
+      { timeout: 20000 },
     );
 
-    // Use FrameLocator, just like in fillPaymentDetailsForPackage
     const outerFrame = this.page.frameLocator(
-      'iframe[name^="__zoid__tebex_js_checkout_component__"]'
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]',
     );
-    console.log('✅ Found Tebex iframe — starting Google Pay flow...');
 
-    // --- 2) Click "More Payment Methods" ---
-    console.log('🧾 Clicking "More Payment Methods"...');
-    const moreMethodsButton = outerFrame.getByText('More Payment Methods', {
-      exact: true,
-    });
-    await moreMethodsButton.waitFor({ state: 'visible', timeout: 10000 });
-    await moreMethodsButton.click();
-
-    // --- 3) Select the Google Pay method ---
-    console.log('🧾 Selecting Google Pay method...');
-    const googlePayCard = outerFrame.locator(
-      'div.payment-methods .v-card:has(img[src*="gpay"])'
-    );
-    await googlePayCard.waitFor({ state: 'visible', timeout: 10000 });
-    await googlePayCard.click();
-
-    // ❌ DO NOT click Back – the view likely closes/changes automatically
-    // (this is what caused the "element was detached" timeout)
-
-    // Optional: wait for the payment-methods list to disappear
+    // Select PayPal Method
+    await outerFrame.getByText('More Payment Methods', { exact: true }).click();
     await outerFrame
-      .locator('div.payment-methods')
-      .waitFor({ state: 'hidden', timeout: 10000 })
-      .catch(() => {
-        console.log('ℹ️ payment-methods container did not hide explicitly (may already be gone).');
-      });
+      .locator('div.payment-methods .v-card:has(img[src*="paypal"])')
+      .click();
 
-    // --- 4) Fill basic customer details ---
-    console.log('🧾 Filling basic customer details for Google Pay...');
+    // Fill Tebex Customer Details
     await outerFrame.locator('#email').fill(email);
     await outerFrame.locator('input[name*="name" i]').fill(fullName);
     await outerFrame
       .locator('input[name*="zip" i], input[name*="postal" i]')
       .fill(zipCode);
-    console.log('✅ Basic customer details filled');
 
-    // --- 5) Tick Terms & Conditions (same idea as your card flow) ---
+    // Handle Terms Checkbox
     const termsCheckbox = outerFrame.getByRole('checkbox', {
       name: /I agree to Tebex's Terms/i,
     });
-
     if (await termsCheckbox.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const checked = await termsCheckbox.isChecked().catch(() => false);
-      if (!checked) {
-        await termsCheckbox.check();
-        console.log('☑️ Checked Terms and Conditions checkbox');
-      } else {
-        console.log('🔘 Terms checkbox already checked');
-      }
-    } else {
-      console.log("⚠️ Terms checkbox not visible, couldn't click it");
+      if (!(await termsCheckbox.isChecked())) await termsCheckbox.check();
     }
 
-    // --- 6) Click Pay ---
-    console.log('💳 Clicking Pay button...');
-    const payButton = outerFrame.getByRole('button', { name: /pay/i });
-    if (await payButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await payButton.click();
-      console.log('💳 Clicked Pay button');
-    } else {
-      console.log('⚠️ Pay button not visible');
-    }
+    // --- Handle PayPal Popup Interaction ---
+    console.log('⏳ Clicking continue and catching the PayPal Popup...');
 
-    // --- 7) Wait for next step or navigation (same pattern as your other method) ---
-    console.log('⏳ Waiting for next payment step or navigation...');
-    try {
-      await Promise.race([
-        this.page.waitForSelector(
-          'button.btn.btn-success[name="action"][value="complete"]',
-          { timeout: 15000 }
-        ),
-        this.page.waitForURL(/confirmation|success|thankyou/i, {
-          timeout: 15000,
-        }),
-      ]);
-      console.log('✅ Checkout flow advanced — continuing...');
-    } catch {
-      console.log(
-        '⚠️ No next page or button detected after Pay (likely still loading). Proceeding anyway...'
-      );
-    }
+    const continueButton = outerFrame.getByRole('button', {
+      name: /continue|pay/i,
+    });
+    await continueButton.scrollIntoViewIfNeeded();
+
+    // 1. Trigger the popup and capture the new page reference
+    const [paypalPopup] = await Promise.all([
+      this.page.waitForEvent('popup'),
+      continueButton.click(),
+    ]);
+
+    // 2. Wait for PayPal to load content
+    await paypalPopup.waitForLoadState('domcontentloaded');
+    console.log('✅ PayPal Popup captured. Entering credentials...');
+
+    // 3. Interact with the Popup (Using your recorded steps)
+
+    // -- Step A: Email --
+    // Using regex for 'name' makes it more robust against slight text changes
+    await paypalPopup.getByRole('textbox', { name: /email|mobile/i }).fill(PAYPAL_LOGIN);
+    await paypalPopup.getByRole('button', { name: /next/i }).click();
+
+    // -- Step B: Password --
+    // We explicitly wait for the password field because there is a transition animation
+    const passwordField = paypalPopup.getByRole('textbox', { name: /password/i });
+    await passwordField.waitFor({ state: 'visible' });
+    await passwordField.fill(PAYPAL_PASS);
+
+    await paypalPopup.getByRole('button', { name: /log in/i }).click();
+
+    // -- Step C: Complete Payment --
+    // Waiting for the "Complete Purchase" / "Pay Now" button to appear
+    // 'submit-button-initial' is the ID you found in the inspector
+    const payButton = paypalPopup.getByTestId('submit-button-initial');
+    await payButton.waitFor({ state: 'visible', timeout: 15000 });
+    await payButton.click();
+
+    // 4. Wait for the popup to close naturally
+    // This confirms the payment was processed and the window destroyed itself
+    console.log('⏳ Payment submitted. Waiting for popup to close...');
+    await paypalPopup.waitForEvent('close');
+
+    console.log('🎉 PayPal flow complete. Back to main context.');
   }
+
+
+
+
+
+  async fillPaymentDetailsForPayPalSubscriptions() {
+    // Destructure your existing data
+    const { email, fullName, zipCode, billingAddress, city, state, phone } = this.data;
+
+    // ⚠️ TODO: Move these to environment variables or your data object for security
+    const PAYPAL_LOGIN = 'ollie+personal@tebex.co.uk';
+    const PAYPAL_PASS = 'b/N5T7{x';
+
+    console.log('🧾 Starting to fill PayPal payment details...');
+
+    // --- Standard Setup ---
+    console.log('⏳ Waiting for Tebex checkout iframe...');
+    await this.page.waitForSelector(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]',
+      { timeout: 20000 },
+    );
+
+    const outerFrame = this.page.frameLocator(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]',
+    );
+
+    // Select PayPal Method
+    await outerFrame.getByText('More Payment Methods', { exact: true }).click();
+    await outerFrame
+      .locator('div.payment-methods .v-card:has(img[src*="paypal"])')
+      .click();
+
+    // Fill Tebex Customer Details
+    await outerFrame.locator('#email').fill(email);
+    await outerFrame.locator('input[name*="name" i]').fill(fullName);
+    await outerFrame.locator('input[name*="zip" i], input[name*="postal" i]').fill(zipCode);
+    await outerFrame.locator('input[name*="sender_address_line1" i]').fill(billingAddress);
+    await outerFrame.locator('input[name*="city" i]').fill(city);
+    await outerFrame.locator('input[name*="state" i]').fill(state);
+    await outerFrame.locator('input[name*="phone" i]').fill(phone);
+
+    // Handle Terms Checkbox
+    const termsCheckbox = outerFrame.getByRole('checkbox', {
+      name: /I agree to Tebex's Terms/i,
+    });
+    if (await termsCheckbox.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (!(await termsCheckbox.isChecked())) await termsCheckbox.check();
+    }
+
+    // --- Handle PayPal Popup Interaction ---
+    console.log('⏳ Clicking continue and catching the PayPal Popup...');
+
+    const continueButton = outerFrame.getByRole('button', {
+      name: /continue|pay/i,
+    });
+    await continueButton.scrollIntoViewIfNeeded();
+
+    // 1. Trigger the popup and capture the new page reference
+    const [paypalPopup] = await Promise.all([
+      this.page.waitForEvent('popup'),
+      continueButton.click(),
+    ]);
+
+    // 2. Wait for PayPal to load content
+    await paypalPopup.waitForLoadState('domcontentloaded');
+    console.log('✅ PayPal Popup captured. Entering credentials...');
+
+    // 3. Interact with the Popup
+
+    // -- Step A: Email --
+    // Using regex for 'name' makes it more robust against slight text changes
+    await paypalPopup.getByRole('textbox', { name: /email|mobile/i }).fill(PAYPAL_LOGIN);
+    await paypalPopup.getByRole('button', { name: /next/i }).click();
+
+    // -- Step B: Password --
+    // We explicitly wait for the password field because there is a transition animation
+    const passwordField = paypalPopup.getByRole('textbox', { name: /password/i });
+    await passwordField.waitFor({ state: 'visible' });
+    await passwordField.fill(PAYPAL_PASS);
+
+    await paypalPopup.getByRole('button', { name: /log in/i }).click();
+
+    // -- Step C: Complete Payment --
+    // Waiting for the "Complete Purchase" / "Pay Now" button to appear
+    // 'submit-button-initial' is the ID you found in the inspector
+    const payButton = paypalPopup.getByTestId('submit-button-initial');
+    await payButton.waitFor({ state: 'visible', timeout: 15000 });
+    await payButton.click();
+
+    // 4. Wait for the popup to close naturally
+    // This confirms the payment was processed and the window destroyed itself
+    console.log('⏳ Payment submitted. Waiting for popup to close...');
+    await paypalPopup.waitForEvent('close');
+
+    console.log('🎉 PayPal flow complete. Back to main context.');
+  }
+
+
+
+
 
 
   async confirmTestPayment() {

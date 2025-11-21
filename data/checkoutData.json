@@ -1,8 +1,12 @@
 {
-  "email": "smurdochtest1@gmail.com",
+  "email": "steven.murdoch@overwolf.com",
   "fullName": "Steven Murdoch",
   "zipCode": "90210",
   "cardNumber": "4111111145551142",
   "expiryDate": "0330",
-  "cvc": "737"
+  "cvc": "737",
+  "billingAddress": "Beverley Hills",
+  "city": "Los Angeles",
+  "state": "California",
+  "phone": "555-555-5555"
 }
