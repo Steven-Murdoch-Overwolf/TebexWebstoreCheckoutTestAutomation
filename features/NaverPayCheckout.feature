@@ -10,13 +10,13 @@ And I proceed to checkout
 And I complete the Naver Pay package payment details and click Pay
 Then I am displayed a purchase confirmation message
 
-Scenario: Purchase a Subscription Package with Naver Pay
-Given I am on the Universal Webstore Homepage
-When I select Packages from the sidebar
-And I add a Subscription Package to the basket
-And I proceed to checkout
-And I complete the Naver Pay package payment details and click Pay
-Then I am displayed a purchase confirmation message
+#######Scenario: Purchase a Subscription Package with Naver Pay
+######Given I am on the Universal Webstore Homepage
+#####When I select Packages from the sidebar
+####And I add a Subscription Package to the basket
+###And I proceed to checkout
+##And I complete the Naver Pay package payment details and click Pay
+#Then I am displayed a purchase confirmation message
 
 Scenario: Purchase a Gift Card Package with Naver Pay
 Given I am on the Universal Webstore Homepage

@@ -36,19 +36,48 @@ export class WebstorePages {
   }
 
   async ClickProceedToCheckout() {
+    console.log('🛒 Attempting to proceed to checkout...');
+
+    // 1. Check if the Basket Sidebar is actually visible
+    // The class '.v-navigation-drawer--active' is standard for open drawers in Vuetify
+    const basketDrawer = this.page.locator('.v-navigation-drawer--active');
+    const isBasketOpen = await basketDrawer.isVisible().catch(() => false);
+
+    if (!isBasketOpen) {
+      console.log('⚠️ Basket sidebar not detected. Attempting to open manually...');
+
+      // Try to find the Basket/Cart icon in the header and click it
+      // This is the most reliable way to trigger the drawer if it missed the first time
+      const basketTrigger = this.page.locator('a[href*="#basket"], button:has(.mdi-basket)');
+
+      if (await basketTrigger.isVisible()) {
+        await basketTrigger.first().click();
+        console.log('👆 Clicked Basket icon to force open');
+      } else {
+        // Fallback: If no icon, just wait a moment, maybe animation is slow
+        console.log('⚠️ Basket icon not found. Waiting for animation...');
+      }
+    }
+
+    // 2. Wait for the "Proceed to Checkout" button to appear
     const checkoutBtn = this.page.getByRole('button', { name: /proceed to checkout/i });
 
-    // 1. Wait for it to exist
-    await checkoutBtn.waitFor({ state: 'visible', timeout: 10000 });
+    try {
+      await checkoutBtn.waitFor({ state: 'visible', timeout: 15000 });
+    } catch (e) {
+      // Debugging: If it fails, check if the basket is empty
+      const emptyMsg = this.page.getByText('Your basket is empty', { exact: false });
+      if (await emptyMsg.isVisible()) {
+        throw new Error("❌ Test Failed: The basket is EMPTY. The 'Add to Basket' step likely failed.");
+      }
+      throw e; // Re-throw original error if it wasn't empty
+    }
 
-    // 2. Small "Settling" wait (Vuetify animations usually take ~300ms)
-    await this.page.waitForTimeout(500);
-
-    // 3. Click with FORCE
-    // This bypasses some actionability checks that might be failing due to the animation
+    // 3. Force Click
+    // We use force: true because sometimes the drawer animation is still
+    // technically "moving" when we try to click, which blocks standard clicks.
     await checkoutBtn.click({ force: true });
-
-    console.log('✅ Clicked Proceed to Checkout (Forced)');
+    console.log('✅ Clicked Proceed to Checkout');
   }
 
   async addSubscriptionPackageToBasket() {

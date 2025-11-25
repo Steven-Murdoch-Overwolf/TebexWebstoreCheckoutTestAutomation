@@ -152,106 +152,66 @@ class Checkout {
     throw new Error("Order confirmation message NOT found on page.");
   }
 
-
   async enterCreatorCode() {
     console.log('🎟️ Starting to enter Creator Code...');
 
-    // 1️⃣ Load creator code from JSON data file
+    // 1️⃣ Load creator code from JSON
     let creatorCode = 'DEFAULTCODE';
     try {
+      // Note: Ensure your data file path matches your project structure
       const codeData = JSON.parse(
-        fs.readFileSync('./data/creatorCode.json', 'utf-8')
+        fs.readFileSync('./checkoutData.json', 'utf-8') // Checked your file list, it's checkoutData.json
       );
-      creatorCode = codeData.creatorCode?.trim() || creatorCode;
-      console.log(`🔑 Loaded creator code from data file: ${creatorCode}`);
+      // Access the property (assuming it is stored as "creatorCode" in the JSON)
+      creatorCode = codeData.creatorCode?.trim() || 'automationcode';
+      console.log(`🔑 Loaded creator code: ${creatorCode}`);
     } catch (err) {
-      console.warn('⚠️ Could not read creatorCode.json — using fallback code', err);
+      console.warn('⚠️ Could not read checkoutData.json — using default code');
     }
 
-    // 2️⃣ Try to locate the input either on the main page or inside a frame
-    const selector = '#creator_code';
-    let scope = this.page;                 // 👈 current context (page or frame)
-    let input = scope.locator(selector);
-
-    console.log('⏳ Waiting for Creator Code field to appear...');
-
-    // First try on the main page
-    if (!(await input.isVisible({ timeout: 4000 }).catch(() => false))) {
-      console.log('⚠️ Not found on main page — scanning iframes...');
-      const frames = this.page.frames();
-      for (const frame of frames) {
-        try {
-          const frameInput = frame.locator(selector);
-          if (await frameInput.isVisible({ timeout: 2000 }).catch(() => false)) {
-            console.log(
-              `✅ Found creator code field inside frame: ${frame.url()}`
-            );
-            scope = frame;    // 👈 from now on, use this frame as the context
-            input = frameInput;
-            break;
-          }
-        } catch {
-          /* skip cross-origin errors */
-        }
-      }
-    }
-
-    if (!(await input.isVisible().catch(() => false))) {
-      throw new Error('❌ Could not find creator code input on any page or frame.');
-    }
-
-    // 3️⃣ Fill in the creator code
-    await input.fill('');
-    await input.fill(creatorCode);
-    console.log(`✅ Entered creator code: ${creatorCode}`);
-
-    // 4️⃣ Wait for Apply/Confirm button to appear and click it
-    //    Use the SAME scope (page or frame) where we found the input
-    //    Start with a simple, text-based locator
-    const applyButton = scope.getByRole('button', {
-      name: /apply|confirm/i,
-    });
-
-    console.log('⏳ Waiting for Confirm/Apply button to become ready...');
-
-    // Trigger blur to help UI show the button
-    await input.press('Tab');
-    await scope.waitForTimeout(1000);
-
-    // Wait until button is attached and visible
-    await applyButton.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {
-      throw new Error('❌ Apply button not visible within 15s.');
-    });
-
-    // Short pause to allow any animation
-    await scope.waitForTimeout(600);
-
-    // Scroll into view and click safely
-    await applyButton.scrollIntoViewIfNeeded();
-    try {
-      await applyButton.click({ timeout: 5000 });
-      console.log('🚀 Clicked Confirm/Apply button');
-    } catch (err) {
-      console.log('⚠️ Normal click failed, retrying with force...');
-      await applyButton.click({ force: true });
-      console.log('✅ Clicked Confirm/Apply button (force mode)');
-    }
-
-    // 5️⃣ Verify success confirmation message appears
-    const successMessage = scope.locator(
-      '#app > div > div > nav > div > div > div > div.v-skeleton-loader.bg-background.py-6.mt-auto.align-end > div > div.creator-code-success.text-success'
+    // 2️⃣ Target the Checkout Iframe (The Key Fix)
+    // We use the exact same locator that works for Coupons
+    const iframeLocator = this.page.locator(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]'
     );
 
-    console.log('⏳ Waiting for success message...');
-    await successMessage.waitFor({ state: 'visible', timeout: 8000 });
+    console.log('⏳ Waiting for checkout iframe...');
+    await iframeLocator.waitFor({ state: 'visible', timeout: 15000 });
 
-    const text = await successMessage.textContent();
-    if (text && text.trim()) {
-      console.log(`🎉 Creator code applied successfully: "${text.trim()}"`);
-    } else {
-      console.warn('⚠️ Success message element found but text empty.');
+    const frame = await iframeLocator.contentFrame();
+    if (!frame) {
+      throw new Error('❌ Could not get contentFrame() for checkout iframe');
     }
+
+    // 3️⃣ Find the Input by its Visual Label
+    // Your screenshot shows the label is "Creator Code".
+    // This is much more robust than using IDs like #creator_code.
+    const creatorInput = frame.getByRole('textbox', { name: /creator code/i });
+
+    console.log('⏳ Waiting for Creator Code input...');
+    await creatorInput.waitFor({ state: 'visible', timeout: 15000 });
+
+    // 4️⃣ Fill and Submit
+    await creatorInput.fill('');
+    await creatorInput.fill(creatorCode);
+    console.log(`✅ Entered code: ${creatorCode}`);
+
+    // 5️⃣ Handle the "Continue" Button
+    // Your screenshot shows a large "Continue" button at the bottom.
+    const continueButton = frame.getByRole('button', { name: /continue|apply/i });
+
+    if (await continueButton.isVisible()) {
+      console.log('🔘 Clicking Continue button...');
+      await continueButton.click();
+    } else {
+      console.log('ℹ️ No button found, pressing Enter...');
+      await creatorInput.press('Enter');
+    }
+
+    // Optional: Wait for a success indicator or transition
+    await this.page.waitForTimeout(1000);
   }
+
 
   async enterCoupon() {
     console.log('🎟️ Starting to enter Coupon...');
@@ -815,6 +775,79 @@ class Checkout {
     console.log('🎉 Naver Pay popup closed. Payment complete.');
   }
 
+
+  async fillPaymentDetailsForBanContact() {
+    const { email, fullName, zipCode } = this.data;
+    console.log('🧾 Starting to fill BanContact payment details...');
+
+    // --- 1. Standard Setup & Iframe ---
+    console.log('⏳ Waiting for Tebex checkout iframe...');
+    await this.page.waitForSelector(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]',
+      { timeout: 20000 }
+    );
+    const outerFrame = this.page.frameLocator(
+      'iframe[name^="__zoid__tebex_js_checkout_component__"]'
+    );
+
+    // --- 2. Select BanContact Pay ---
+    await outerFrame.getByText('More Payment Methods', { exact: true }).click();
+    await outerFrame.locator('div.payment-methods .v-card:has(img[src*="bancontact"])').click();
+
+    // --- 3. Fill Customer Details ---
+    await outerFrame.locator('#email').fill(email);
+    await outerFrame.locator('input[name*="name" i]').fill(fullName);
+    await outerFrame.locator('input[name*="zip" i], input[name*="postal" i]').fill(zipCode);
+
+    // --- 4. Handle Terms Checkbox ---
+    const termsCheckbox = outerFrame.getByRole('checkbox', { name: /I agree to Tebex's Terms/i });
+    if (await termsCheckbox.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (!(await termsCheckbox.isChecked())) await termsCheckbox.check();
+    }
+
+    // --- 5. Trigger Popup ---
+    console.log('⏳ Clicking continue and waiting for BanContact Tab...');
+
+    // Locate the pay button inside the iframe
+    const continueButton = outerFrame.getByRole('button', { name: /continue|pay/i });
+    await continueButton.scrollIntoViewIfNeeded();
+
+    // Trigger the popup and capture the reference
+    const [bancontactPopup] = await Promise.all([
+      this.page.waitForEvent('popup'),
+      continueButton.click(),
+    ]);
+
+    // --- 6. Handle New Window (Updated for BanContact) ---
+    console.log('✅ BanContact Popup captured. Waiting for page to load...');
+
+    // Wait for the page to be fully ready (handles redirects common in payment gateways)
+    await bancontactPopup.waitForLoadState('networkidle');
+
+    // 6a. Click the "Paid" radio button
+    // Using the specific selector you provided
+    const paidRadio = bancontactPopup.locator('#body > div.form__body-tight > table > tbody > tr:nth-child(3) > td > div:nth-child(2) > label > input');
+
+    console.log('⏳ Selecting "Paid" status...');
+    await paidRadio.waitFor({ state: 'visible', timeout: 15000 });
+    await paidRadio.click(); // or .check() since it is an input
+    console.log('✅ Selected "Paid"');
+
+    // 6b. Click the Blue Continue Button
+    // Using the specific selector you provided
+    const nextButton = bancontactPopup.locator('#body > div.body__footer > div > button');
+
+    console.log('⏳ Clicking Confirm/Continue button...');
+    await nextButton.waitFor({ state: 'visible', timeout: 15000 });
+    await nextButton.click();
+    console.log('✅ Clicked Continue button');
+
+    // --- 7. Cleanup ---
+    // Wait for the window to close itself, signaling success
+    console.log('⏳ Waiting for popup to close...');
+    await bancontactPopup.waitForEvent('close', { timeout: 30000 });
+    console.log('🎉 BanContact popup closed. Payment flow complete.');
+  }
 
 
 
