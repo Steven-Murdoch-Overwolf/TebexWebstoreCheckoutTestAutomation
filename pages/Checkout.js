@@ -515,14 +515,27 @@ class Checkout {
 
 
   async fillPaymentDetailsForPayPal() {
-    // Destructure your existing data
+    // Destructure your existing customer data
     const { email, fullName, zipCode } = this.data;
 
-    // ⚠️ TODO: Move these to environment variables or your data object for security
-    const PAYPAL_LOGIN = 'ollie+personal@tebex.co.uk';
-    const PAYPAL_PASS = 'b/N5T7{x';
-
     console.log('🧾 Starting to fill PayPal payment details...');
+
+    // --- 1. Load PayPal Credentials from JSON ---
+    let paypalCreds = {};
+    try {
+      const rawData = fs.readFileSync('./data/paypalAccount.json', 'utf-8');
+      paypalCreds = JSON.parse(rawData);
+    } catch (err) {
+      console.error('⚠️ Error reading paypalAccount.json:', err.message);
+      throw new Error('❌ Could not load PayPal credentials. Check data/paypalAccount.json');
+    }
+
+    const PAYPAL_LOGIN = paypalCreds.username;
+    const PAYPAL_PASS = paypalCreds.password;
+
+    if (!PAYPAL_LOGIN || !PAYPAL_PASS) {
+      throw new Error('❌ Username or Password missing in data/paypalAccount.json');
+    }
 
     // --- Standard Setup ---
     console.log('⏳ Waiting for Tebex checkout iframe...');
@@ -577,12 +590,10 @@ class Checkout {
     // 3. Interact with the Popup (Using your recorded steps)
 
     // -- Step A: Email --
-    // Using regex for 'name' makes it more robust against slight text changes
     await paypalPopup.getByRole('textbox', { name: /email|mobile/i }).fill(PAYPAL_LOGIN);
     await paypalPopup.getByRole('button', { name: /next/i }).click();
 
     // -- Step B: Password --
-    // We explicitly wait for the password field because there is a transition animation
     const passwordField = paypalPopup.getByRole('textbox', { name: /password/i });
     await passwordField.waitFor({ state: 'visible' });
     await passwordField.fill(PAYPAL_PASS);
@@ -590,14 +601,12 @@ class Checkout {
     await paypalPopup.getByRole('button', { name: /log in/i }).click();
 
     // -- Step C: Complete Payment --
-    // Waiting for the "Complete Purchase" / "Pay Now" button to appear
     // 'submit-button-initial' is the ID you found in the inspector
     const payButton = paypalPopup.getByTestId('submit-button-initial');
     await payButton.waitFor({ state: 'visible', timeout: 15000 });
     await payButton.click();
 
     // 4. Wait for the popup to close naturally
-    // This confirms the payment was processed and the window destroyed itself
     console.log('⏳ Payment submitted. Waiting for popup to close...');
     await paypalPopup.waitForEvent('close');
 
@@ -622,7 +631,7 @@ class Checkout {
     console.log('⏳ Waiting for Tebex checkout iframe...');
     await this.page.waitForSelector(
       'iframe[name^="__zoid__tebex_js_checkout_component__"]',
-      { timeout: 20000 },
+      { timeout:30000 },
     );
 
     const outerFrame = this.page.frameLocator(
